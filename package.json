@@ -1,0 +1,32 @@
+{
+  "name": "@necolo/idb-store",
+  "version": "1.0.0",
+  "description": "A simple IndexedDB api",
+  "main": "lib/index.js",
+  "repository": "https://github.com/Necolo/idb-store",
+  "author": "necolo <negko311@gmail.com>",
+  "scripts": {
+    "build": "tsc"
+  },
+  "directories": {
+    "lib": "lib"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "keywords": [
+    "indexeddb",
+    "indexdb",
+    "javascript",
+    "typescript"
+  ],
+  "license": "MIT",
+  "private": false,
+  "devDependencies": {
+    "typescript": "^4.5.5"
+  }
+}
