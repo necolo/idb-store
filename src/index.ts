@@ -24,6 +24,12 @@ export default class IDBStore<V> {
     callback: (store: IDBObjectStore) => T | PromiseLike<T>,
   ) => Promise<T>;
 
+  private storeIndex: <T>(
+    mode: IDBTransactionMode,
+    indexName: string,
+    callback: (index: IDBIndex) => T | PromiseLike<T>,
+  ) => Promise<T>;
+
   constructor(spec: {
     dbName: string;
     storeName: string;
@@ -46,9 +52,12 @@ export default class IDBStore<V> {
       }
     };
     const promisedIDB = promisify(request);
-    this.store = (mode, callback) =>
+    const store = this.store = (mode, callback) =>
       promisedIDB.then(db =>
         callback(db.transaction(storeName, mode).objectStore(storeName)));
+
+    this.storeIndex = (mode, indexName, callback) => 
+        store(mode, s => callback(s.index(indexName)));
   }
 
   /**
@@ -58,6 +67,19 @@ export default class IDBStore<V> {
    */
   public get(key: IDBValidKey): Promise<V | undefined> {
     return this.store('readonly', store => promisify(store.get(key)));
+  }
+
+  /**
+   * Get one
+   * @param indexName 
+   * @param indexValue 
+   */
+  public getByIndex(indexName: string, indexValue: any): Promise<V | undefined> {
+    return this.storeIndex(
+      'readonly',
+      indexName,
+      index => promisify(index.get(indexValue)))
+    ;
   }
 
   /**
@@ -99,7 +121,7 @@ export default class IDBStore<V> {
    * @param value 
    * @returns 
    */
-  public update(value: V) {
+  public update(value: Partial<V>) {
     return this.store('readwrite', store => {
       store.put(value);
       return promisify<void>(store.transaction);
@@ -132,16 +154,27 @@ export default class IDBStore<V> {
   /**
    * Iterate the records
    */
-  public cursor(callback: (cursor: IDBCursorWithValue) => void) {
+  public cursor(callback: (cursor: IDBCursorWithValue) => void, keyRangeValue?: IDBKeyRange) {
     return this.store('readonly', store => {
-      store.openCursor().onsuccess = function onsuccess() {
+      store.openCursor(keyRangeValue).onsuccess = function onsuccess() {
         if (!this.result) {
           return;
         }
         callback(this.result);
         this.result.continue();
       };
-      return promisify(store.transaction);
+    });
+  }
+
+  public cursorIndex(indexName: string, callback: (cursor: IDBCursorWithValue) => void, keyRangeValue?: IDBKeyRange) {
+    return this.storeIndex('readonly', indexName, index => {
+      index.openCursor(keyRangeValue).onsuccess = function onsuccess() {
+        if (!this.result) {
+          return;
+        }
+        callback(this.result);
+        this.result.continue();
+      };
     });
   }
 
@@ -149,9 +182,13 @@ export default class IDBStore<V> {
    * Get all records
    * @returns 
    */
-  public getAll(): Promise<V[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public getAll(keyRangeValue?: IDBKeyRange): Promise<V[]> {
     const items: any[] = [];
-    return this.cursor(cursor => items.push(cursor)).then(() => items);
+    return this.cursor(cursor => items.push(cursor), keyRangeValue).then(() => items);
+  }
+
+  public async getAllByIndex(indexName: string, keyRangeValue?: IDBKeyRange): Promise<V[]> {
+    const items: any[] = [];
+    return this.cursorIndex(indexName, value => items.push(value), keyRangeValue).then(() => items);
   }
 }
