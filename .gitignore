@@ -1,5 +1,6 @@
 .parcel-cache
 lib
+yarn.lock
 
 # Logs
 logs

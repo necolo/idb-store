@@ -8,6 +8,7 @@ function promisify<T = undefined>(request: IDBRequest<T> | IDBTransaction) {
 }
 
 export interface IDBStoreOptions extends IDBObjectStoreParameters {
+  keyPath?: string;
   indexes?: Parameters<IDBObjectStore['createIndex']>[];
 }
 
@@ -39,6 +40,7 @@ export default class IDBStore<V> {
   }) {
     const { dbName, version, storeName, options } = spec;
     this.name = storeName;
+
     const self = spec.self || window;
 
     const request = self.indexedDB.open(dbName, version);
@@ -88,7 +90,7 @@ export default class IDBStore<V> {
    * @param value 
    * @returns 
    */
-  public set(key: IDBValidKey, value: V) {
+  public set(value: V, key?: IDBValidKey) {
     return this.store('readwrite', store => {
       store.put(value, key);
       return promisify<void>(store.transaction);
@@ -187,6 +189,13 @@ export default class IDBStore<V> {
     return this.cursor(cursor => items.push(cursor), keyRangeValue).then(() => items);
   }
 
+  /**
+   * Get all records that matches the index and it's filter
+   * For keyRangeValue usage, refer to https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange
+   * @param indexName 
+   * @param keyRangeValue  ig. IDBKeyRange.only(value);
+   * @returns 
+   */
   public async getAllByIndex(indexName: string, keyRangeValue?: IDBKeyRange): Promise<V[]> {
     const items: any[] = [];
     return this.cursorIndex(indexName, value => items.push(value), keyRangeValue).then(() => items);

@@ -9,7 +9,7 @@
     "downlevelIteration": true,
     "allowSyntheticDefaultImports" : true,
     "allowJs": true,
-    "declaration": false,
+    "declaration": true,
     "emitDecoratorMetadata": true,
     "importHelpers": true,
     "removeComments": false,
