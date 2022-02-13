@@ -1,8 +1,9 @@
 {
   "name": "@necolo/idb-store",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A simple IndexedDB api",
   "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "repository": "https://github.com/Necolo/idb-store",
   "author": "necolo <negko311@gmail.com>",
   "scripts": {
