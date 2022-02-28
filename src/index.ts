@@ -6,57 +6,49 @@ function promisify<T = undefined>(request: IDBRequest<T> | IDBTransaction) {
     request.onabort = request.onerror = () => reject(request.error);
   });
 }
-
 export interface IDBStoreOptions extends IDBObjectStoreParameters {
   keyPath?: string;
   indexes?: Parameters<IDBObjectStore['createIndex']>[];
 }
 
-export interface IDBStoreConfig {
-  options?: IDBStoreOptions;
-  defaultValue: Record<string, any>;
-}
-
-export default class IDBStore<V> {
-  public readonly name: string;
+export class IDBStore<V> {
 
   private store: <T>(
     mode: IDBTransactionMode,
-    callback: (store: IDBObjectStore) => T | PromiseLike<T>,
-  ) => Promise<T>;
+    callback: (store: IDBObjectStore) => T,
+  ) => T = () => {
+    throw new Error(`IDBStore ${this.name} is not initialized`);
+  };
 
   private storeIndex: <T>(
     mode: IDBTransactionMode,
     indexName: string,
-    callback: (index: IDBIndex) => T | PromiseLike<T>,
-  ) => Promise<T>;
+    callback: (index: IDBIndex) => T,
+  ) => T = () => {
+    throw new Error(`IDBStoreIndex ${this.name} is not initialized`);
+  };
 
-  constructor(spec: {
-    dbName: string;
-    storeName: string;
-    version: number;
-    options?: IDBStoreOptions;
-    self?: WindowOrWorkerGlobalScope;
-  }) {
-    const { dbName, version, storeName, options } = spec;
-    this.name = storeName;
+  constructor(
+    public readonly name: string,
+    public readonly options: IDBStoreOptions,
+  ) { }
 
-    const self = spec.self || window;
-
-    const request = self.indexedDB.open(dbName, version);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(storeName, options);
-      if (options && options.indexes) {
-        for (let i = 0; i < options.indexes.length; i++) {
-          const index = options.indexes[i];
-          store.createIndex(...index);
-        }
+  public createObjectStore(request: IDBOpenDBRequest) {
+    const { options } = this;
+    const store = request.result.createObjectStore(this.name, options);
+    if (options && options.indexes) {
+      for (let i = 0; i < options.indexes.length; i++) {
+        const index = options.indexes[i];
+        store.createIndex(...index);
       }
-    };
-    const promisedIDB = promisify(request);
+    }
+  }
+
+  public register(db: globalThis.IDBDatabase) {
+    const { name } = this;
+
     const store = this.store = (mode, callback) =>
-      promisedIDB.then(db =>
-        callback(db.transaction(storeName, mode).objectStore(storeName)));
+      callback(db.transaction(name, mode).objectStore(name));
 
     this.storeIndex = (mode, indexName, callback) => 
         store(mode, s => callback(s.index(indexName)));
@@ -157,36 +149,43 @@ export default class IDBStore<V> {
    * Iterate the records
    */
   public cursor(callback: (cursor: IDBCursorWithValue) => void, keyRangeValue?: IDBKeyRange) {
-    return this.store('readonly', store => {
-      store.openCursor(keyRangeValue).onsuccess = function onsuccess() {
-        if (!this.result) {
-          return;
+    return this.store('readonly', store => new Promise<void>((resolve, reject) => {
+      const request = store.openCursor(keyRangeValue);
+      request.onsuccess = function() {
+        const cursor = this.result;
+        if (!cursor) {
+          return resolve();
         }
-        callback(this.result);
-        this.result.continue();
+        callback(cursor);
+        cursor.continue();
       };
-    });
+      request.onerror = reject;
+    }));
   }
 
   public cursorIndex(indexName: string, callback: (cursor: IDBCursorWithValue) => void, keyRangeValue?: IDBKeyRange) {
-    return this.storeIndex('readonly', indexName, index => {
-      index.openCursor(keyRangeValue).onsuccess = function onsuccess() {
-        if (!this.result) {
-          return;
+    return this.storeIndex('readonly', indexName, index => new Promise<void>((resolve, reject) => {
+      const request = index.openCursor(keyRangeValue);
+      request.onsuccess = function() {
+        const cursor = this.result;
+        if (!cursor) {
+          return resolve();
         }
-        callback(this.result);
-        this.result.continue();
+        callback(cursor);
+        cursor.continue();
       };
-    });
+      request.onerror = reject;
+    }));
   }
 
   /**
    * Get all records
    * @returns 
    */
-  public getAll(keyRangeValue?: IDBKeyRange): Promise<V[]> {
-    const items: any[] = [];
-    return this.cursor(cursor => items.push(cursor), keyRangeValue).then(() => items);
+  public async getAll(keyRangeValue?: IDBKeyRange): Promise<V[]> {
+    const items: V[] = [];
+    await this.cursor(cursor => items.push(cursor.value), keyRangeValue);
+    return items;
   }
 
   /**
@@ -198,6 +197,40 @@ export default class IDBStore<V> {
    */
   public async getAllByIndex(indexName: string, keyRangeValue?: IDBKeyRange): Promise<V[]> {
     const items: any[] = [];
-    return this.cursorIndex(indexName, value => items.push(value), keyRangeValue).then(() => items);
+    await this.cursorIndex(indexName, cursor => items.push(cursor.value), keyRangeValue);
+    return items;
+  }
+}
+
+function iterate<T>(obj: Record<string, T>, cb: (key: string, v: T) => void) {
+  const keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    cb(key, obj[key]);
+  }
+}
+
+export class IDBDatabase<T extends { [storeName: string]: IDBStore<unknown> }> {
+  constructor(
+    public readonly dbName: string,
+    public readonly version: number,
+    public readonly stores: T,
+    private self: WindowOrWorkerGlobalScope = window,
+  ) { }
+
+  public async init() {
+    const { dbName, version, stores, self } = this;
+    const request = self.indexedDB.open(dbName, version);
+
+    // for further updates
+    request.onupgradeneeded = () => {
+      iterate(stores, (_, store) => {
+        store.createObjectStore(request);
+      })
+    };
+
+    // register each objectStore
+    const db = await promisify(request);
+    iterate(stores, (_, store) => store.register(db));
   }
 }
