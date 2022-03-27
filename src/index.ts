@@ -33,13 +33,24 @@ export class IDBStore<V> {
     public readonly options: IDBStoreOptions,
   ) { }
 
-  public createObjectStore(request: IDBOpenDBRequest) {
-    const { options } = this;
-    const store = request.result.createObjectStore(this.name, options);
+  public upgrade(request: IDBOpenDBRequest) {
+    const { options, name } = this;
+    const db = request.result;
+    const upgradeTransaction = request.transaction;
+
+    let store: IDBObjectStore;
+    if (!db.objectStoreNames.contains(name)) {
+      store = db.createObjectStore(name);
+    } else {
+      store = upgradeTransaction!.objectStore(name);
+    }
+
     if (options && options.indexes) {
       for (let i = 0; i < options.indexes.length; i++) {
         const index = options.indexes[i];
-        store.createIndex(...index);
+        if (!store.indexNames.contains(index[0])) {
+          store.createIndex(...index);
+        }
       }
     }
   }
@@ -210,6 +221,8 @@ function iterate<T>(obj: Record<string, T>, cb: (key: string, v: T) => void) {
   }
 }
 
+export type Migration = (db: globalThis.IDBDatabase) => void;
+
 export class IDBDatabase<T extends { [storeName: string]: IDBStore<unknown> }> {
   constructor(
     public readonly dbName: string,
@@ -219,14 +232,15 @@ export class IDBDatabase<T extends { [storeName: string]: IDBStore<unknown> }> {
   ) { }
 
   public async init() {
-    const { dbName, version, stores, self } = this;
+    const { dbName, stores, self, version } = this;
     const request = self.indexedDB.open(dbName, version);
 
     // for further updates
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = event => {
+      console.log(`IndexedDB is upgrading from ${event.oldVersion} to ${event.newVersion}`)
       iterate(stores, (_, store) => {
-        store.createObjectStore(request);
-      })
+        store.upgrade(request);
+      });
     };
 
     // register each objectStore
