@@ -40,7 +40,7 @@ export class IDBStore<V> {
 
     let store: IDBObjectStore;
     if (!db.objectStoreNames.contains(name)) {
-      store = db.createObjectStore(name);
+      store = db.createObjectStore(name, options);
     } else {
       store = upgradeTransaction!.objectStore(name);
     }
